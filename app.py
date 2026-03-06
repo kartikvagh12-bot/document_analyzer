@@ -18,7 +18,7 @@ header {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🤖 Kartik AI Assistant")
+st.title("🤖 Smart Document Assistant")
 st.caption("AI chatbot trained on your documents")
 
 import json
