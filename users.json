@@ -6,5 +6,9 @@
   "client2": {
     "name": "Company Two",
     "password": "123"
+  },
+  "Demouser": {
+    "name": "sanjay",
+    "password": "Bot@2026"
   }
 }
