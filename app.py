@@ -1,6 +1,5 @@
 import streamlit as st
 import json
-import os
 
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import FAISS
@@ -9,7 +8,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
 from langchain_openai import ChatOpenAI
 
-st.set_page_config(page_title="AI Document Assistant", page_icon="📚")
+from langchain.retrievers.multi_query import MultiQueryRetriever
+
+st.set_page_config(page_title="AI Knowledge Assistant", page_icon="📚")
 
 st.title("📚 AI Knowledge Assistant")
 st.caption("Built by Kartik Vagh")
@@ -22,6 +23,10 @@ api_key = st.secrets["OPENAI_API_KEY"]
 
 with open("users.json") as f:
     users = json.load(f)
+
+# -----------------------------
+# Login system
+# -----------------------------
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -45,7 +50,6 @@ if not st.session_state.logged_in:
             st.rerun()
 
         else:
-
             st.error("Invalid username or password")
 
     st.stop()
@@ -59,15 +63,12 @@ username = st.session_state.username
 st.success(f"Welcome {users[username]['name']}")
 
 # -----------------------------
-# User folders
+# Logout button
 # -----------------------------
 
-user_folder = f"data/{username}"
-docs_folder = f"{user_folder}/docs"
-db_folder = f"{user_folder}/vectordb"
-
-os.makedirs(docs_folder, exist_ok=True)
-os.makedirs(db_folder, exist_ok=True)
+if st.sidebar.button("Logout"):
+    st.session_state.clear()
+    st.rerun()
 
 # -----------------------------
 # Session state
@@ -92,64 +93,10 @@ def load_llm():
         temperature=0
     )
 
-# -----------------------------
-# Create DB
-# -----------------------------
-
-def create_db():
-
-    embeddings = OpenAIEmbeddings(openai_api_key=api_key)
-
-    all_docs = []
-
-    for file in os.listdir(docs_folder):
-
-        if file.endswith(".pdf"):
-
-            loader = PyPDFLoader(f"{docs_folder}/{file}")
-
-            docs = loader.load()
-
-            for doc in docs:
-                doc.metadata["source"] = file
-
-            all_docs.extend(docs)
-
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=800,
-        chunk_overlap=100
-    )
-
-    split_docs = splitter.split_documents(all_docs)
-
-    db = FAISS.from_documents(split_docs, embeddings)
-
-    db.save_local(db_folder)
-
-    return db
+llm = load_llm()
 
 # -----------------------------
-# Load DB if exists
-# -----------------------------
-
-def load_db():
-
-    embeddings = OpenAIEmbeddings(openai_api_key=api_key)
-
-    index_file = os.path.join(db_folder, "index.faiss")
-
-    if os.path.exists(index_file):
-
-        return FAISS.load_local(
-            db_folder,
-            embeddings,
-            allow_dangerous_deserialization=True
-        )
-
-    return None
-
-# -----------------------------
-# Upload docs
+# Upload documents
 # -----------------------------
 
 uploaded_files = st.file_uploader(
@@ -160,19 +107,41 @@ uploaded_files = st.file_uploader(
 
 if uploaded_files:
 
-    for uploaded_file in uploaded_files:
+    with st.spinner("Analyzing documents..."):
 
-        path = f"{docs_folder}/{uploaded_file.name}"
+        all_docs = []
 
-        with open(path, "wb") as f:
-            f.write(uploaded_file.read())
+        for uploaded_file in uploaded_files:
 
-    st.session_state.db = create_db()
+            with open(uploaded_file.name, "wb") as f:
+                f.write(uploaded_file.read())
+
+            loader = PyPDFLoader(uploaded_file.name)
+
+            docs = loader.load()
+
+            for doc in docs:
+                doc.metadata["source"] = uploaded_file.name
+
+            all_docs.extend(docs)
+
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=800,
+            chunk_overlap=100
+        )
+
+        split_docs = splitter.split_documents(all_docs)
+
+        embeddings = OpenAIEmbeddings(openai_api_key=api_key)
+
+        st.session_state.db = FAISS.from_documents(split_docs, embeddings)
+
+        st.session_state.messages = []
 
     st.success("Documents indexed successfully!")
 
 # -----------------------------
-# Chat
+# Display chat history
 # -----------------------------
 
 for msg in st.session_state.messages:
@@ -181,11 +150,13 @@ for msg in st.session_state.messages:
 
         st.markdown(msg["content"])
 
-question = st.chat_input("Ask something about your documents")
+# -----------------------------
+# Chat input
+# -----------------------------
+
+question = st.chat_input("Ask something about the documents")
 
 if question and st.session_state.db:
-
-    llm = load_llm()
 
     st.session_state.messages.append({"role": "user", "content": question})
 
@@ -193,14 +164,13 @@ if question and st.session_state.db:
 
         st.markdown(question)
 
-    results = st.session_state.db.similarity_search_with_score(question)
+    # Multi-query retrieval
+    retriever = MultiQueryRetriever.from_llm(
+        retriever=st.session_state.db.as_retriever(),
+        llm=llm
+    )
 
-    relevant_docs = []
-
-    for doc, score in results:
-
-        if score < 0.7:
-            relevant_docs.append(doc)
+    relevant_docs = retriever.get_relevant_documents(question)
 
     if len(relevant_docs) == 0:
 
@@ -211,9 +181,13 @@ if question and st.session_state.db:
         context = "\n\n".join([doc.page_content for doc in relevant_docs])
 
         prompt = f"""
-You are a document assistant.
+You are an AI document assistant.
 
 Answer ONLY using the provided context.
+
+Rules:
+- If the answer is not in the documents, say you cannot find it.
+- Do not invent information.
 
 Context:
 {context}
