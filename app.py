@@ -60,6 +60,7 @@ if "db" not in st.session_state:
 def load_llm():
 
     return ChatOpenAI(
+        model="gpt-4.1-mini",
         openai_api_key=api_key,
         temperature=0
     )
