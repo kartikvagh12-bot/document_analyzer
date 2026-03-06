@@ -1,27 +1,50 @@
 import streamlit as st
+import json
+import os
 
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import FAISS
-
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from langchain_openai import OpenAIEmbeddings
 from langchain_openai import ChatOpenAI
 
-st.set_page_config(page_title="Document Chatbot", page_icon="📄")
+st.set_page_config(page_title="AI Document Assistant", page_icon="📚")
 
-st.title("📄 Document Chatbot")
+st.title("📚 AI Knowledge Assistant")
 st.caption("Built by Kartik Vagh")
 
-# -------------------
-# API Key
-# -------------------
+api_key = st.secrets["OPENAI_API_KEY"]
 
-api_key = st.text_input("Enter OpenAI API Key", type="password")
+# -----------------------------
+# Load users
+# -----------------------------
 
-# -------------------
-# Session State
-# -------------------
+with open("users.json") as f:
+    users = json.load(f)
+
+username = st.text_input("Username")
+password = st.text_input("Password", type="password")
+
+if username not in users or users[username]["password"] != password:
+    st.stop()
+
+st.success(f"Welcome {users[username]['name']}")
+
+# -----------------------------
+# User folders
+# -----------------------------
+
+user_folder = f"data/{username}"
+docs_folder = f"{user_folder}/docs"
+db_folder = f"{user_folder}/vectordb"
+
+os.makedirs(docs_folder, exist_ok=True)
+os.makedirs(db_folder, exist_ok=True)
+
+# -----------------------------
+# Session state
+# -----------------------------
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -29,76 +52,115 @@ if "messages" not in st.session_state:
 if "db" not in st.session_state:
     st.session_state.db = None
 
-# -------------------
-# Cached LLM
-# -------------------
+# -----------------------------
+# Load LLM
+# -----------------------------
 
 @st.cache_resource
-def load_llm(key):
+def load_llm():
+
     return ChatOpenAI(
-        openai_api_key=key,
+        openai_api_key=api_key,
         temperature=0
     )
 
-# -------------------
-# Cached Vector DB
-# -------------------
+# -----------------------------
+# Create DB
+# -----------------------------
 
-@st.cache_resource
-def create_db(docs, key):
-    embeddings = OpenAIEmbeddings(openai_api_key=key)
-    return FAISS.from_documents(docs, embeddings)
+def create_db():
 
-# -------------------
-# Upload PDF
-# -------------------
+    embeddings = OpenAIEmbeddings(openai_api_key=api_key)
 
-uploaded_file = st.file_uploader("Upload a PDF document", type="pdf")
+    all_docs = []
 
-if uploaded_file and api_key and st.session_state.db is None:
+    for file in os.listdir(docs_folder):
 
-    with st.spinner("Analyzing document..."):
+        if file.endswith(".pdf"):
 
-        with open("temp.pdf", "wb") as f:
+            loader = PyPDFLoader(f"{docs_folder}/{file}")
+
+            docs = loader.load()
+
+            for doc in docs:
+                doc.metadata["source"] = file
+
+            all_docs.extend(docs)
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=800,
+        chunk_overlap=100
+    )
+
+    split_docs = splitter.split_documents(all_docs)
+
+    db = FAISS.from_documents(split_docs, embeddings)
+
+    db.save_local(db_folder)
+
+    return db
+
+# -----------------------------
+# Load DB if exists
+# -----------------------------
+
+def load_db():
+
+    embeddings = OpenAIEmbeddings(openai_api_key=api_key)
+
+    if os.path.exists(db_folder):
+
+        return FAISS.load_local(db_folder, embeddings, allow_dangerous_deserialization=True)
+
+    return None
+
+if st.session_state.db is None:
+
+    st.session_state.db = load_db()
+
+# -----------------------------
+# Upload docs
+# -----------------------------
+
+uploaded_files = st.file_uploader(
+    "Upload PDF documents",
+    type="pdf",
+    accept_multiple_files=True
+)
+
+if uploaded_files:
+
+    for uploaded_file in uploaded_files:
+
+        path = f"{docs_folder}/{uploaded_file.name}"
+
+        with open(path, "wb") as f:
             f.write(uploaded_file.read())
 
-        loader = PyPDFLoader("temp.pdf")
-        documents = loader.load()
+    st.session_state.db = create_db()
 
-        splitter = RecursiveCharacterTextSplitter(
-            chunk_size=800,
-            chunk_overlap=100
-        )
+    st.success("Documents indexed successfully!")
 
-        docs = splitter.split_documents(documents)
-
-        db = create_db(docs, api_key)
-
-        st.session_state.db = db
-
-    st.success("Document ready! Ask questions.")
-
-# -------------------
-# Show Chat History
-# -------------------
+# -----------------------------
+# Chat
+# -----------------------------
 
 for msg in st.session_state.messages:
+
     with st.chat_message(msg["role"]):
+
         st.markdown(msg["content"])
 
-# -------------------
-# Chat Input
-# -------------------
+question = st.chat_input("Ask something about your documents")
 
-question = st.chat_input("Ask something about the document")
+if question and st.session_state.db:
 
-if question and st.session_state.db and api_key:
-
-    llm = load_llm(api_key)
+    llm = load_llm()
 
     st.session_state.messages.append({"role": "user", "content": question})
 
     with st.chat_message("user"):
+
         st.markdown(question)
 
     results = st.session_state.db.similarity_search_with_score(question)
@@ -106,15 +168,13 @@ if question and st.session_state.db and api_key:
     relevant_docs = []
 
     for doc, score in results:
+
         if score < 0.7:
             relevant_docs.append(doc)
 
     if len(relevant_docs) == 0:
 
-        response = "I could not find that in the document."
-
-        with st.chat_message("assistant"):
-            st.markdown(response)
+        response = "I could not find that in the documents."
 
     else:
 
@@ -123,12 +183,7 @@ if question and st.session_state.db and api_key:
         prompt = f"""
 You are a document assistant.
 
-Answer the question ONLY using the provided context.
-
-Rules:
-- If the answer is not in the document, say: "I could not find that in the document."
-- Do not invent information.
-- Keep the answer clear and short.
+Answer ONLY using the provided context.
 
 Context:
 {context}
@@ -139,20 +194,30 @@ Question:
 
         response = llm.predict(prompt)
 
-        with st.chat_message("assistant"):
-            st.markdown(response)
+    with st.chat_message("assistant"):
 
-            st.markdown("**Sources:**")
+        st.markdown(response)
 
-            shown_pages = set()
+        st.markdown("**Sources:**")
 
-            for doc in relevant_docs:
-                page = doc.metadata.get("page", "?")
+        shown = set()
 
-                if page not in shown_pages:
-                    st.markdown(f"- Page {page}")
-                    shown_pages.add(page)
+        for doc in relevant_docs:
+
+            source = doc.metadata.get("source", "Unknown")
+            page = doc.metadata.get("page", "?")
+
+            key = f"{source}-{page}"
+
+            if key not in shown:
+
+                st.markdown(f"- {source} (Page {page})")
+
+                shown.add(key)
 
     st.session_state.messages.append(
         {"role": "assistant", "content": response}
     )
+
+st.markdown("---")
+st.markdown("© 2026 Kartik Vagh")
