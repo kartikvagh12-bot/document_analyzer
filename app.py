@@ -23,11 +23,38 @@ api_key = st.secrets["OPENAI_API_KEY"]
 with open("users.json") as f:
     users = json.load(f)
 
-username = st.text_input("Username")
-password = st.text_input("Password", type="password")
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
 
-if username not in users or users[username]["password"] != password:
+if not st.session_state.logged_in:
+
+    st.subheader("Login")
+
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+
+    login = st.button("Login")
+
+    if login:
+
+        if username in users and users[username]["password"] == password:
+
+            st.session_state.logged_in = True
+            st.session_state.username = username
+
+            st.rerun()
+
+        else:
+
+            st.error("Invalid username or password")
+
     st.stop()
+
+# -----------------------------
+# After login
+# -----------------------------
+
+username = st.session_state.username
 
 st.success(f"Welcome {users[username]['name']}")
 
