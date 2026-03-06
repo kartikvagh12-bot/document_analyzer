@@ -1,4 +1,5 @@
 streamlit
+streamlit-authenticator
 langchain
 langchain-community
 langchain-openai
