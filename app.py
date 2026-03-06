@@ -1,6 +1,7 @@
 import streamlit as st
 import json
 
+from langchain_community.retrievers import BM25Retriever
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import FAISS
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -126,15 +127,25 @@ if uploaded_files:
             all_docs.extend(docs)
 
         splitter = RecursiveCharacterTextSplitter(
-            chunk_size=800,
-            chunk_overlap=100
+            chunk_size=1200,
+            chunk_overlap=200
         )
 
         split_docs = splitter.split_documents(all_docs)
 
         embeddings = OpenAIEmbeddings(openai_api_key=api_key)
 
-        st.session_state.db = FAISS.from_documents(split_docs, embeddings)
+        vector_db = FAISS.from_documents(split_docs, embeddings)
+
+        bm25_retriever = BM25Retriever.from_documents(split_docs)
+        bm25_retriever.k = 20
+
+        vector_retriever = vector_db.as_retriever(search_kwargs={"k": 20})
+
+        st.session_state.retrievers = {
+            "vector": vector_retriever,
+            "bm25": bm25_retriever
+        }
 
         st.session_state.messages = []
 
@@ -165,12 +176,21 @@ if question and st.session_state.db:
         st.markdown(question)
 
     # Multi-query retrieval
-    retriever = MultiQueryRetriever.from_llm(
-        retriever=st.session_state.db.as_retriever(
-            search_kwargs={"k": 20}
-        ),
-        llm=llm
-    )
+    vector_docs = st.session_state.retrievers["vector"].invoke(question)
+    keyword_docs = st.session_state.retrievers["bm25"].invoke(question)
+    
+    combined_docs = vector_docs + keyword_docs
+    
+    # remove duplicates
+    seen = set()
+    relevant_docs = []
+    
+    for doc in combined_docs:
+        text = doc.page_content
+    
+        if text not in seen:
+            relevant_docs.append(doc)
+            seen.add(text)
 
     relevant_docs = retriever.get_relevant_documents(question)
 
