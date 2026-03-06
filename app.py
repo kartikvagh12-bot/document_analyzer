@@ -222,7 +222,7 @@ Question:
 {question}
 """
 
-        response = llm.predict(prompt)
+        response = llm.invoke(prompt).content
 
     with st.chat_message("assistant"):
 
