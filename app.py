@@ -136,15 +136,17 @@ def load_db():
 
     embeddings = OpenAIEmbeddings(openai_api_key=api_key)
 
-    if os.path.exists(db_folder):
+    index_file = os.path.join(db_folder, "index.faiss")
 
-        return FAISS.load_local(db_folder, embeddings, allow_dangerous_deserialization=True)
+    if os.path.exists(index_file):
+
+        return FAISS.load_local(
+            db_folder,
+            embeddings,
+            allow_dangerous_deserialization=True
+        )
 
     return None
-
-if st.session_state.db is None:
-
-    st.session_state.db = load_db()
 
 # -----------------------------
 # Upload docs
