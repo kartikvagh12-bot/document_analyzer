@@ -9,7 +9,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
 from langchain_openai import ChatOpenAI
 
-from langchain.retrievers.multi_query import MultiQueryRetriever
+from langchain_community.retrievers.multi_query import MultiQueryRetriever
 
 st.set_page_config(page_title="AI Knowledge Assistant", page_icon="📚")
 
