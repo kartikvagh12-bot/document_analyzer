@@ -1,4 +1,26 @@
 import streamlit as st
+
+st.set_page_config(
+    page_title="Kartik AI Assistant",
+    page_icon="🤖",
+    layout="centered"
+)
+
+st.markdown("""
+<style>
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+.block-container {
+    padding-top: 2rem;
+    max-width: 800px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.title("🤖 Kartik AI Assistant")
+st.caption("AI chatbot trained on your documents")
+
 import json
 
 from langchain_community.retrievers import BM25Retriever
