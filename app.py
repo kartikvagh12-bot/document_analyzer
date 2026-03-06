@@ -124,7 +124,7 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True
 )
 
-if uploaded_files:
+if uploaded_files and st.session_state.retrievers is None:
 
     with st.spinner("Analyzing documents..."):
 
@@ -164,9 +164,8 @@ if uploaded_files:
             "bm25": bm25_retriever
         }
 
-        st.session_state.messages = []
-
     st.success("Documents indexed successfully!")
+       
 
 # -----------------------------
 # Display chat history
