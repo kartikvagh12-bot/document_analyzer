@@ -11,8 +11,8 @@ from langchain_openai import ChatOpenAI
 
 st.set_page_config(page_title="AI Knowledge Assistant", page_icon="📚")
 
-st.title("📚 AI Knowledge Assistant")
-st.caption("Built by Kartik Vagh")
+st.sidebar.title("📚 AI Knowledge Assistant")
+st.sidebar.caption("Built by Kartik Vagh")
 
 api_key = st.secrets["OPENAI_API_KEY"]
 
@@ -58,13 +58,25 @@ if not st.session_state.logged_in:
 
 username = st.session_state.username
 
-st.success(f"Welcome {users[username]['name']}")
+st.sidebar.markdown("---")
+st.sidebar.write(f"👤 {users[username]['name']}")
+st.sidebar.markdown("---")
 
 # -----------------------------
-# Logout button
+# Sidebar navigation
 # -----------------------------
 
-if st.sidebar.button("Logout"):
+menu = st.sidebar.radio(
+    "Navigation",
+    ["💬 Chat", "📂 Upload Documents"]
+)
+
+if st.sidebar.button("🆕 New Session"):
+    st.session_state.retrievers = None
+    st.session_state.messages = []
+    st.rerun()
+
+if st.sidebar.button("🚪 Logout"):
     st.session_state.clear()
     st.rerun()
 
@@ -93,7 +105,7 @@ def load_llm():
 llm = load_llm()
 
 # -----------------------------
-# Query expansion (multi-query)
+# Query expansion
 # -----------------------------
 
 def expand_queries(question):
@@ -108,7 +120,6 @@ Question: {question}
     response = llm.invoke(prompt).content
 
     queries = [q.strip() for q in response.split("\n") if q.strip()]
-
     queries.append(question)
 
     return queries
@@ -118,111 +129,118 @@ Question: {question}
 # Upload documents
 # -----------------------------
 
-uploaded_files = st.file_uploader(
-    "Upload PDF documents",
-    type="pdf",
-    accept_multiple_files=True
-)
+if menu == "📂 Upload Documents":
 
-if uploaded_files and st.session_state.retrievers is None:
+    st.header("Upload Documents")
 
-    with st.spinner("Analyzing documents..."):
+    uploaded_files = st.file_uploader(
+        "Upload PDF documents",
+        type="pdf",
+        accept_multiple_files=True
+    )
 
-        all_docs = []
+    if uploaded_files and st.session_state.retrievers is None:
 
-        for uploaded_file in uploaded_files:
+        with st.spinner("Analyzing documents..."):
 
-            with open(uploaded_file.name, "wb") as f:
-                f.write(uploaded_file.read())
+            all_docs = []
 
-            loader = PyPDFLoader(uploaded_file.name)
-            docs = loader.load()
+            for uploaded_file in uploaded_files:
 
-            for doc in docs:
-                doc.metadata["source"] = uploaded_file.name
+                with open(uploaded_file.name, "wb") as f:
+                    f.write(uploaded_file.read())
 
-            all_docs.extend(docs)
+                loader = PyPDFLoader(uploaded_file.name)
+                docs = loader.load()
 
-        splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1200,
-            chunk_overlap=200
-        )
+                for doc in docs:
+                    doc.metadata["source"] = uploaded_file.name
 
-        split_docs = splitter.split_documents(all_docs)
+                all_docs.extend(docs)
 
-        embeddings = OpenAIEmbeddings(openai_api_key=api_key)
+            splitter = RecursiveCharacterTextSplitter(
+                chunk_size=1200,
+                chunk_overlap=200
+            )
 
-        vector_db = FAISS.from_documents(split_docs, embeddings)
+            split_docs = splitter.split_documents(all_docs)
 
-        vector_retriever = vector_db.as_retriever(search_kwargs={"k": 20})
+            embeddings = OpenAIEmbeddings(openai_api_key=api_key)
 
-        bm25_retriever = BM25Retriever.from_documents(split_docs)
-        bm25_retriever.k = 20
+            vector_db = FAISS.from_documents(split_docs, embeddings)
 
-        st.session_state.retrievers = {
-            "vector": vector_retriever,
-            "bm25": bm25_retriever
-        }
+            vector_retriever = vector_db.as_retriever(search_kwargs={"k": 20})
 
-    st.success("Documents indexed successfully!")
-       
+            bm25_retriever = BM25Retriever.from_documents(split_docs)
+            bm25_retriever.k = 20
 
-# -----------------------------
-# Display chat history
-# -----------------------------
+            st.session_state.retrievers = {
+                "vector": vector_retriever,
+                "bm25": bm25_retriever
+            }
 
-for msg in st.session_state.messages:
-
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+        st.success("Documents indexed successfully!")
 
 # -----------------------------
-# Chat input
+# Chat interface
 # -----------------------------
 
-question = st.chat_input("Ask something about the documents")
+if menu == "💬 Chat":
 
-if question and st.session_state.retrievers:
+    st.header("Chat with Documents")
 
-    st.session_state.messages.append({"role": "user", "content": question})
+    if st.session_state.retrievers is None:
+        st.info("Upload documents first.")
+        st.stop()
 
-    with st.chat_message("user"):
-        st.markdown(question)
+    for msg in st.session_state.messages:
 
-    queries = expand_queries(question)
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
 
-    relevant_docs = []
+    question = st.chat_input("Ask something about the documents")
 
-    for q in queries:
+    if question:
 
-        vector_docs = st.session_state.retrievers["vector"].invoke(q)
-        keyword_docs = st.session_state.retrievers["bm25"].invoke(q)
+        st.session_state.messages.append({"role": "user", "content": question})
 
-        relevant_docs.extend(vector_docs)
-        relevant_docs.extend(keyword_docs)
+        with st.chat_message("user"):
+            st.markdown(question)
 
-    # remove duplicates
-    unique_docs = []
-    seen = set()
+        queries = expand_queries(question)
 
-    for doc in relevant_docs:
-        text = doc.page_content
+        relevant_docs = []
 
-        if text not in seen:
-            unique_docs.append(doc)
-            seen.add(text)
+        for q in queries:
 
-    relevant_docs = unique_docs
+            vector_docs = st.session_state.retrievers["vector"].invoke(q)
+            keyword_docs = st.session_state.retrievers["bm25"].invoke(q)
 
-    if len(relevant_docs) == 0:
+            relevant_docs.extend(vector_docs)
+            relevant_docs.extend(keyword_docs)
 
-        response = "No matching records found."
+        unique_docs = []
+        seen = set()
 
-    else:
+        for doc in relevant_docs:
 
-        context = "\n\n".join([doc.page_content for doc in relevant_docs])
+            text = doc.page_content
 
-        prompt = f"""
+            if text not in seen:
+                unique_docs.append(doc)
+                seen.add(text)
+
+        relevant_docs = unique_docs
+
+        if len(relevant_docs) == 0:
+
+            response = "No matching records found."
+
+        else:
+
+            context = "\n\n".join([doc.page_content for doc in relevant_docs])
+
+            prompt = f"""
 You are an AI document extraction assistant.
 
 Your job is to extract exact information from the document context.
@@ -242,30 +260,30 @@ User request:
 Return results as a clear list.
 """
 
-        response = llm.invoke(prompt).content
+            response = llm.invoke(prompt).content
 
-    with st.chat_message("assistant"):
+        with st.chat_message("assistant"):
 
-        st.markdown(response)
+            st.markdown(response)
 
-        st.markdown("**Sources:**")
+            st.markdown("**Sources:**")
 
-        shown = set()
+            shown = set()
 
-        for doc in relevant_docs:
+            for doc in relevant_docs:
 
-            source = doc.metadata.get("source", "Unknown")
-            page = doc.metadata.get("page", "?")
+                source = doc.metadata.get("source", "Unknown")
+                page = doc.metadata.get("page", "?")
 
-            key = f"{source}-{page}"
+                key = f"{source}-{page}"
 
-            if key not in shown:
-                st.markdown(f"- {source} (Page {page})")
-                shown.add(key)
+                if key not in shown:
+                    st.markdown(f"- {source} (Page {page})")
+                    shown.add(key)
 
-    st.session_state.messages.append(
-        {"role": "assistant", "content": response}
-    )
+        st.session_state.messages.append(
+            {"role": "assistant", "content": response}
+        )
 
 st.markdown("---")
 st.markdown("© 2026 Kartik Vagh")
