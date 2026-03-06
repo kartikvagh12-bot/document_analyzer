@@ -9,8 +9,6 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
 from langchain_openai import ChatOpenAI
 
-from langchain_community.retrievers.multi_query import MultiQueryRetriever
-
 st.set_page_config(page_title="AI Knowledge Assistant", page_icon="📚")
 
 st.title("📚 AI Knowledge Assistant")
@@ -47,7 +45,6 @@ if not st.session_state.logged_in:
 
             st.session_state.logged_in = True
             st.session_state.username = username
-
             st.rerun()
 
         else:
@@ -78,8 +75,8 @@ if st.sidebar.button("Logout"):
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-if "db" not in st.session_state:
-    st.session_state.db = None
+if "retrievers" not in st.session_state:
+    st.session_state.retrievers = None
 
 # -----------------------------
 # Load LLM
@@ -87,7 +84,6 @@ if "db" not in st.session_state:
 
 @st.cache_resource
 def load_llm():
-
     return ChatOpenAI(
         model="gpt-4.1-mini",
         openai_api_key=api_key,
@@ -95,6 +91,28 @@ def load_llm():
     )
 
 llm = load_llm()
+
+# -----------------------------
+# Query expansion (multi-query)
+# -----------------------------
+
+def expand_queries(question):
+
+    prompt = f"""
+Generate 4 alternative search queries for the following question.
+Return each query on a new line.
+
+Question: {question}
+"""
+
+    response = llm.invoke(prompt).content
+
+    queries = [q.strip() for q in response.split("\n") if q.strip()]
+
+    queries.append(question)
+
+    return queries
+
 
 # -----------------------------
 # Upload documents
@@ -118,7 +136,6 @@ if uploaded_files:
                 f.write(uploaded_file.read())
 
             loader = PyPDFLoader(uploaded_file.name)
-
             docs = loader.load()
 
             for doc in docs:
@@ -137,10 +154,10 @@ if uploaded_files:
 
         vector_db = FAISS.from_documents(split_docs, embeddings)
 
+        vector_retriever = vector_db.as_retriever(search_kwargs={"k": 20})
+
         bm25_retriever = BM25Retriever.from_documents(split_docs)
         bm25_retriever.k = 20
-
-        vector_retriever = vector_db.as_retriever(search_kwargs={"k": 20})
 
         st.session_state.retrievers = {
             "vector": vector_retriever,
@@ -158,7 +175,6 @@ if uploaded_files:
 for msg in st.session_state.messages:
 
     with st.chat_message(msg["role"]):
-
         st.markdown(msg["content"])
 
 # -----------------------------
@@ -167,61 +183,65 @@ for msg in st.session_state.messages:
 
 question = st.chat_input("Ask something about the documents")
 
-if question and st.session_state.db:
+if question and st.session_state.retrievers:
 
     st.session_state.messages.append({"role": "user", "content": question})
 
     with st.chat_message("user"):
-
         st.markdown(question)
 
-    # Multi-query retrieval
-    vector_docs = st.session_state.retrievers["vector"].invoke(question)
-    keyword_docs = st.session_state.retrievers["bm25"].invoke(question)
-    
-    combined_docs = vector_docs + keyword_docs
-    
-    # remove duplicates
-    seen = set()
+    queries = expand_queries(question)
+
     relevant_docs = []
-    
-    for doc in combined_docs:
+
+    for q in queries:
+
+        vector_docs = st.session_state.retrievers["vector"].invoke(q)
+        keyword_docs = st.session_state.retrievers["bm25"].invoke(q)
+
+        relevant_docs.extend(vector_docs)
+        relevant_docs.extend(keyword_docs)
+
+    # remove duplicates
+    unique_docs = []
+    seen = set()
+
+    for doc in relevant_docs:
         text = doc.page_content
-    
+
         if text not in seen:
-            relevant_docs.append(doc)
+            unique_docs.append(doc)
             seen.add(text)
 
-    relevant_docs = retriever.get_relevant_documents(question)
+    relevant_docs = unique_docs
 
     if len(relevant_docs) == 0:
 
-        response = "I could not find that in the documents."
+        response = "No matching records found."
 
     else:
 
         context = "\n\n".join([doc.page_content for doc in relevant_docs])
 
         prompt = f"""
-        You are an AI document extraction assistant.
-        
-        Your job is to extract exact information from the document context.
-        
-        Important rules:
-        - Do NOT summarize.
-        - Extract ALL matching records from the context.
-        - If multiple entries match the query, list ALL of them.
-        - Preserve names, numbers, and payment amounts exactly as written.
-        - If nothing matches, say: "No matching records found."
-        
-        Context:
-        {context}
-        
-        User request:
-        {question}
-        
-        Return the answer as a clear list.
-        """
+You are an AI document extraction assistant.
+
+Your job is to extract exact information from the document context.
+
+Rules:
+- Do NOT summarize
+- Extract ALL matching records
+- Preserve names and numbers exactly
+- If nothing matches say "No matching records found"
+
+Context:
+{context}
+
+User request:
+{question}
+
+Return results as a clear list.
+"""
 
         response = llm.invoke(prompt).content
 
@@ -241,9 +261,7 @@ if question and st.session_state.db:
             key = f"{source}-{page}"
 
             if key not in shown:
-
                 st.markdown(f"- {source} (Page {page})")
-
                 shown.add(key)
 
     st.session_state.messages.append(
