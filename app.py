@@ -166,7 +166,9 @@ if question and st.session_state.db:
 
     # Multi-query retrieval
     retriever = MultiQueryRetriever.from_llm(
-        retriever=st.session_state.db.as_retriever(),
+        retriever=st.session_state.db.as_retriever(
+            search_kwargs={"k": 20}
+        ),
         llm=llm
     )
 
