@@ -111,11 +111,11 @@ llm = load_llm()
 def expand_queries(question):
 
     prompt = f"""
-Generate 4 alternative search queries for the following question.
-Return each query on a new line.
-
-Question: {question}
-"""
+    Generate 4 alternative search queries for the following question.
+    Return each query on a new line.
+    
+    Question: {question}
+    """
 
     response = llm.invoke(prompt).content
 
@@ -123,6 +123,20 @@ Question: {question}
     queries.append(question)
 
     return queries
+
+def keyword_match_filter(docs, question):
+
+    words = question.lower().split()
+
+    filtered = []
+
+    for doc in docs:
+        text = doc.page_content.lower()
+
+        if any(word in text for word in words):
+            filtered.append(doc)
+
+    return filtered
 
 
 # -----------------------------
@@ -138,6 +152,11 @@ if menu == "📂 Upload Documents":
         type="pdf",
         accept_multiple_files=True
     )
+    MAX_DOCS = 5
+
+    if uploaded_files and len(uploaded_files) > MAX_DOCS:
+        st.error("Maximum 5 documents allowed per session.")
+        st.stop()
 
     if uploaded_files and st.session_state.retrievers is None:
 
@@ -146,6 +165,9 @@ if menu == "📂 Upload Documents":
             all_docs = []
 
             for uploaded_file in uploaded_files:
+                if uploaded_file.size > 20 * 1024 * 1024:
+                    st.error("File too large. Maximum 20MB.")
+                    st.stop()
 
                 with open(uploaded_file.name, "wb") as f:
                     f.write(uploaded_file.read())
@@ -230,7 +252,7 @@ if menu == "💬 Chat":
                 unique_docs.append(doc)
                 seen.add(text)
 
-        relevant_docs = unique_docs
+        relevant_docs = keyword_match_filter(unique_docs, question)
 
         if len(relevant_docs) == 0:
 
@@ -241,27 +263,31 @@ if menu == "💬 Chat":
             context = "\n\n".join([doc.page_content for doc in relevant_docs])
 
             prompt = f"""
-You are an AI document extraction assistant.
+            You are an AI document extraction assistant.
+            
+            Your job is to extract exact information from the document context.
+            
+            Rules:
+            - Do NOT summarize
+            - Extract ALL matching records
+            - Preserve names and numbers exactly
+            - If nothing matches say "No matching records found"
+            - Scan the entire context and extract every matching record.
+            
+            Context:
+            {context}
+            
+            User request:
+            {question}
+            
+            Return results as a clear list.
+            """
 
-Your job is to extract exact information from the document context.
-
-Rules:
-- Do NOT summarize
-- Extract ALL matching records
-- Preserve names and numbers exactly
-- If nothing matches say "No matching records found"
-
-Context:
-{context}
-
-User request:
-{question}
-
-Return results as a clear list.
-"""
-
-            response = llm.invoke(prompt).content
-
+            try:
+                response = llm.invoke(prompt).content
+            except Exception:
+                response = "AI service is temporarily unavailable. Please try again."
+                
         with st.chat_message("assistant"):
 
             st.markdown(response)
