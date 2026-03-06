@@ -203,20 +203,25 @@ if question and st.session_state.db:
         context = "\n\n".join([doc.page_content for doc in relevant_docs])
 
         prompt = f"""
-You are an AI document assistant.
-
-Answer ONLY using the provided context.
-
-Rules:
-- If the answer is not in the documents, say you cannot find it.
-- Do not invent information.
-
-Context:
-{context}
-
-Question:
-{question}
-"""
+        You are an AI document extraction assistant.
+        
+        Your job is to extract exact information from the document context.
+        
+        Important rules:
+        - Do NOT summarize.
+        - Extract ALL matching records from the context.
+        - If multiple entries match the query, list ALL of them.
+        - Preserve names, numbers, and payment amounts exactly as written.
+        - If nothing matches, say: "No matching records found."
+        
+        Context:
+        {context}
+        
+        User request:
+        {question}
+        
+        Return the answer as a clear list.
+        """
 
         response = llm.invoke(prompt).content
 
