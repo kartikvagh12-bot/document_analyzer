@@ -42,7 +42,14 @@ api_key = st.secrets["OPENAI_API_KEY"]
 # Load users
 # -----------------------------
 
-with open("users.json") as f:
+import json
+import os
+
+if not os.path.exists("users.json"):
+    with open("users.json", "w") as f:
+        json.dump({}, f)
+
+with open("users.json", "r") as f:
     users = json.load(f)
 
 # -----------------------------
