@@ -58,16 +58,11 @@ menu = st.sidebar.radio(
     ["💬 Chat", "📂 Upload Documents"]
 )
 
-
-# -----------------------------
-# API KEY
-# -----------------------------
-
 api_key = st.secrets["OPENAI_API_KEY"]
 
 
 # -----------------------------
-# LOAD USERS
+# USER SYSTEM
 # -----------------------------
 
 if not os.path.exists("users.json"):
@@ -79,7 +74,7 @@ with open("users.json", "r") as f:
 
 
 # -----------------------------
-# LOGIN SYSTEM
+# LOGIN
 # -----------------------------
 
 if "logged_in" not in st.session_state:
@@ -92,9 +87,7 @@ if not st.session_state.logged_in:
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
 
-    login = st.button("Login")
-
-    if login:
+    if st.button("Login"):
 
         if username in users and users[username]["password"] == password:
 
@@ -108,20 +101,12 @@ if not st.session_state.logged_in:
     st.stop()
 
 
-# -----------------------------
-# AFTER LOGIN
-# -----------------------------
-
 username = st.session_state.username
 
 st.sidebar.markdown("---")
 st.sidebar.write(f"👤 {users[username]['name']}")
 st.sidebar.markdown("---")
 
-
-# -----------------------------
-# SESSION CONTROLS
-# -----------------------------
 
 if st.sidebar.button("🆕 New Session"):
     st.session_state.retrievers = None
@@ -191,6 +176,7 @@ def keyword_match_filter(docs, question):
     filtered = []
 
     for doc in docs:
+
         text = doc.page_content.lower()
 
         if any(word in text for word in words):
@@ -227,10 +213,6 @@ if menu == "📂 Upload Documents":
 
             for uploaded_file in uploaded_files:
 
-                if uploaded_file.size > 20 * 1024 * 1024:
-                    st.error("File too large (max 20MB).")
-                    st.stop()
-
                 with open(uploaded_file.name, "wb") as f:
                     f.write(uploaded_file.read())
 
@@ -265,9 +247,26 @@ if menu == "📂 Upload Documents":
 
         st.success("Documents indexed successfully!")
 
+def rank_by_question_relevance(docs, question):
+
+    words = question.lower().split()
+
+    scored = []
+
+    for doc in docs:
+
+        text = doc.page_content.lower()
+
+        score = sum(word in text for word in words)
+
+        scored.append((score, doc))
+
+    scored.sort(reverse=True, key=lambda x: x[0])
+
+    return [doc for score, doc in scored]
 
 # -----------------------------
-# CHAT INTERFACE
+# CHAT
 # -----------------------------
 
 if menu == "💬 Chat":
@@ -319,12 +318,10 @@ if menu == "💬 Chat":
 
         relevant_docs = keyword_match_filter(unique_docs, question)
 
-        MAX_CONTEXT_DOCS = 6
-        selected_docs = relevant_docs[:MAX_CONTEXT_DOCS]
-
-        context = "\n\n".join(
-            [doc.page_content for doc in selected_docs]
-        )
+        ranked_docs = rank_by_question_relevance(relevant_docs, question)
+        
+        MAX_CONTEXT_DOCS = 4
+        selected_docs = ranked_docs[:MAX_CONTEXT_DOCS]
 
         # -----------------------------
         # MODE PROMPTS
@@ -333,46 +330,67 @@ if menu == "💬 Chat":
         if mode == "Ask Questions":
 
             prompt = f"""
-Answer the question using the document context.
+You must answer using ONLY the document context.
+
+Rules:
+- Do not use outside knowledge
+- If the answer is not in the document say: "Not found in the document"
+- Be concise
 
 Context:
 {context}
 
 Question:
 {question}
-
-Provide a clear answer.
 """
 
         elif mode == "Explain Simply":
 
             prompt = f"""
-Explain the following content in simple language
-so a student can understand easily.
+Explain the answer to the user's question in simple language.
 
-Document:
+Rules:
+- Only use the document context
+- Do not explain the entire document
+- Only explain the part related to the question
+- If the answer is not in the document say: "Not found in the document"
+
+Context:
 {context}
+
+Question:
+{question}
 """
 
         elif mode == "Generate Quiz":
 
             prompt = f"""
-Create 5 quiz questions from the document.
+Create 5 quiz questions using ONLY the document.
+
+Rules:
+- Do not invent information
+- Do not use outside knowledge
+- Questions must be answerable from the context
 
 Context:
 {context}
-
-Return numbered questions.
 """
 
         elif mode == "Create Flashcards":
 
             prompt = f"""
-Create 10 flashcards.
+Create flashcards ONLY from the document context.
+
+Rules:
+- Use ONLY information in the document
+- Do not invent facts
+- If there is not enough information say:
+"Not enough information in document"
+- Create 5 flashcards maximum
 
 Format:
-Q: question
-A: answer
+Q: ...
+A: ...
 
 Context:
 {context}
@@ -380,7 +398,6 @@ Context:
 
         try:
             response = llm.invoke(prompt).content
-
         except Exception:
             response = "AI service temporarily unavailable."
 
