@@ -10,13 +10,15 @@ st.markdown("""
 <style>
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
-header {visibility: hidden;}
 .block-container {
     padding-top: 2rem;
     max-width: 800px;
 }
 </style>
 """, unsafe_allow_html=True)
+
+# TEST SIDEBAR
+st.sidebar.write("Test Sidebar")
 
 st.title("🤖 Smart Document Assistant")
 st.caption("AI chatbot trained on your documents")
