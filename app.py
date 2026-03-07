@@ -145,6 +145,29 @@ llm = load_llm()
 
 
 # -----------------------------
+# RERANK FUNCTION
+# -----------------------------
+
+def rerank_docs(docs, question):
+
+    words = question.lower().split()
+
+    scored = []
+
+    for doc in docs:
+
+        text = doc.page_content.lower()
+
+        score = sum(word in text for word in words)
+
+        scored.append((score, doc))
+
+    scored.sort(reverse=True, key=lambda x: x[0])
+
+    return [doc for score, doc in scored]
+
+
+# -----------------------------
 # QUERY EXPANSION
 # -----------------------------
 
@@ -166,26 +189,6 @@ Question: {question}
 
 
 # -----------------------------
-# KEYWORD FILTER
-# -----------------------------
-
-def keyword_match_filter(docs, question):
-
-    words = question.lower().split()
-
-    filtered = []
-
-    for doc in docs:
-
-        text = doc.page_content.lower()
-
-        if any(word in text for word in words):
-            filtered.append(doc)
-
-    return filtered
-
-
-# -----------------------------
 # DOCUMENT UPLOAD
 # -----------------------------
 
@@ -198,12 +201,6 @@ if menu == "📂 Upload Documents":
         type="pdf",
         accept_multiple_files=True
     )
-
-    MAX_DOCS = 5
-
-    if uploaded_files and len(uploaded_files) > MAX_DOCS:
-        st.error("Maximum 5 documents allowed per session.")
-        st.stop()
 
     if uploaded_files and st.session_state.retrievers is None:
 
@@ -247,23 +244,6 @@ if menu == "📂 Upload Documents":
 
         st.success("Documents indexed successfully!")
 
-def rank_by_question_relevance(docs, question):
-
-    words = question.lower().split()
-
-    scored = []
-
-    for doc in docs:
-
-        text = doc.page_content.lower()
-
-        score = sum(word in text for word in words)
-
-        scored.append((score, doc))
-
-    scored.sort(reverse=True, key=lambda x: x[0])
-
-    return [doc for score, doc in scored]
 
 # -----------------------------
 # CHAT
@@ -295,20 +275,20 @@ if menu == "💬 Chat":
 
         queries = expand_queries(question)
 
-        relevant_docs = []
+        retrieved_docs = []
 
         for q in queries:
 
             vector_docs = st.session_state.retrievers["vector"].invoke(q)
             keyword_docs = st.session_state.retrievers["bm25"].invoke(q)
 
-            relevant_docs.extend(vector_docs)
-            relevant_docs.extend(keyword_docs)
+            retrieved_docs.extend(vector_docs)
+            retrieved_docs.extend(keyword_docs)
 
         unique_docs = []
         seen = set()
 
-        for doc in relevant_docs:
+        for doc in retrieved_docs:
 
             text = doc.page_content
 
@@ -316,119 +296,110 @@ if menu == "💬 Chat":
                 unique_docs.append(doc)
                 seen.add(text)
 
-        relevant_docs = keyword_match_filter(unique_docs, question)
+        ranked_docs = rerank_docs(unique_docs, question)
 
-        ranked_docs = rank_by_question_relevance(relevant_docs, question)
-        
-        MAX_CONTEXT_DOCS = 4
-        selected_docs = ranked_docs[:MAX_CONTEXT_DOCS]
+        selected_docs = ranked_docs[:4]
 
-        # -----------------------------
-        # MODE PROMPTS
-        # -----------------------------
+        if len(selected_docs) == 0:
 
-        if mode == "Ask Questions":
+            response = "No relevant information found in the document."
 
-            prompt = f"""
-            You must answer using ONLY the document context.
-            
-            Rules:
-            - Do not use outside knowledge
-            - If the answer is not in the document say: "Not found in the document"
-            - Be concise
-            
-            Context:
-            {context}
-            
-            Question:
-            {question}
-            """
+        else:
 
-        elif mode == "Explain Simply":
+            context = "\n\n".join(
+                [doc.page_content for doc in selected_docs]
+            )
 
-            prompt = f"""
-            Explain the answer to the user's question in simple language.
-            
-            Rules:
-            - Only use the document context
-            - Do not explain the entire document
-            - Only explain the part related to the question
-            - If the answer is not in the document say: "Not found in the document"
-            
-            Context:
-            {context}
-            
-            Question:
-            {question}
-            """
+            if mode == "Ask Questions":
 
-        elif mode == "Generate Quiz":
+                prompt = f"""
+Answer ONLY using the document context.
 
-            prompt = f"""
-            Create 5 quiz questions using ONLY the document.
-            
-            Rules:
-            - Do not invent information
-            - Do not use outside knowledge
-            - Questions must be answerable from the context
-            
-            Context:
-            {context}
-            """
+If the answer is not present say:
+"Not found in the document."
 
-        elif mode == "Create Flashcards":
+Context:
+{context}
 
-            prompt = f"""
-            Create flashcards ONLY from the document context.
-            
-            Rules:
-            - Use ONLY information in the document
-            - Do not invent facts
-            - If there is not enough information say:
-            "Not enough information in document"
-            - Create 5 flashcards maximum
-            
-            Format:
-            Q: ...
-            A: ...
-            
-            Context:
-            {context}
-            """
+Question:
+{question}
+"""
 
-        try:
-            response = llm.invoke(prompt).content
-        except Exception:
-            response = "AI service temporarily unavailable."
+            elif mode == "Explain Simply":
+
+                prompt = f"""
+Explain the answer to the user's question
+in simple language.
+
+Only use the document context.
+
+Context:
+{context}
+
+Question:
+{question}
+"""
+
+            elif mode == "Generate Quiz":
+
+                prompt = f"""
+Create 5 quiz questions from the document.
+
+Use ONLY information in the context.
+
+Context:
+{context}
+"""
+
+            elif mode == "Create Flashcards":
+
+                prompt = f"""
+Create 5 flashcards using ONLY the document.
+
+Format:
+
+Q: question
+A: answer
+
+Context:
+{context}
+"""
+
+            try:
+                response = llm.invoke(prompt).content
+            except Exception:
+                response = "AI service temporarily unavailable."
 
         with st.chat_message("assistant"):
 
             st.markdown(response)
 
-            st.markdown("### Sources")
+            if len(selected_docs) > 0:
 
-            shown = set()
+                st.markdown("### Sources")
 
-            for doc in selected_docs:
-
-                source = doc.metadata.get("source", "Unknown")
-                page = doc.metadata.get("page", "?")
-
-                key = f"{source}-{page}"
-
-                if key not in shown:
-                    st.markdown(f"- {source} (Page {page})")
-                    shown.add(key)
-
-            with st.expander("📄 View Source Text"):
+                shown = set()
 
                 for doc in selected_docs:
 
                     source = doc.metadata.get("source", "Unknown")
                     page = doc.metadata.get("page", "?")
 
-                    st.markdown(f"**{source} – Page {page}**")
-                    st.write(doc.page_content[:800])
+                    key = f"{source}-{page}"
+
+                    if key not in shown:
+                        st.markdown(f"- {source} (Page {page})")
+                        shown.add(key)
+
+                with st.expander("📄 View Source Text"):
+
+                    for doc in selected_docs:
+
+                        source = doc.metadata.get("source", "Unknown")
+                        page = doc.metadata.get("page", "?")
+
+                        st.markdown(f"**{source} – Page {page}**")
+                        st.write(doc.page_content[:800])
 
         st.session_state.messages.append(
             {"role": "assistant", "content": response}
