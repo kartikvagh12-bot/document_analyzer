@@ -330,71 +330,71 @@ if menu == "💬 Chat":
         if mode == "Ask Questions":
 
             prompt = f"""
-You must answer using ONLY the document context.
-
-Rules:
-- Do not use outside knowledge
-- If the answer is not in the document say: "Not found in the document"
-- Be concise
-
-Context:
-{context}
-
-Question:
-{question}
-"""
+            You must answer using ONLY the document context.
+            
+            Rules:
+            - Do not use outside knowledge
+            - If the answer is not in the document say: "Not found in the document"
+            - Be concise
+            
+            Context:
+            {context}
+            
+            Question:
+            {question}
+            """
 
         elif mode == "Explain Simply":
 
             prompt = f"""
-Explain the answer to the user's question in simple language.
-
-Rules:
-- Only use the document context
-- Do not explain the entire document
-- Only explain the part related to the question
-- If the answer is not in the document say: "Not found in the document"
-
-Context:
-{context}
-
-Question:
-{question}
-"""
+            Explain the answer to the user's question in simple language.
+            
+            Rules:
+            - Only use the document context
+            - Do not explain the entire document
+            - Only explain the part related to the question
+            - If the answer is not in the document say: "Not found in the document"
+            
+            Context:
+            {context}
+            
+            Question:
+            {question}
+            """
 
         elif mode == "Generate Quiz":
 
             prompt = f"""
-Create 5 quiz questions using ONLY the document.
-
-Rules:
-- Do not invent information
-- Do not use outside knowledge
-- Questions must be answerable from the context
-
-Context:
-{context}
-"""
+            Create 5 quiz questions using ONLY the document.
+            
+            Rules:
+            - Do not invent information
+            - Do not use outside knowledge
+            - Questions must be answerable from the context
+            
+            Context:
+            {context}
+            """
 
         elif mode == "Create Flashcards":
 
             prompt = f"""
-Create flashcards ONLY from the document context.
-
-Rules:
-- Use ONLY information in the document
-- Do not invent facts
-- If there is not enough information say:
-"Not enough information in document"
-- Create 5 flashcards maximum
-
-Format:
-Q: ...
-A: ...
-
-Context:
-{context}
-"""
+            Create flashcards ONLY from the document context.
+            
+            Rules:
+            - Use ONLY information in the document
+            - Do not invent facts
+            - If there is not enough information say:
+            "Not enough information in document"
+            - Create 5 flashcards maximum
+            
+            Format:
+            Q: ...
+            A: ...
+            
+            Context:
+            {context}
+            """
 
         try:
             response = llm.invoke(prompt).content
