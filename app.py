@@ -1,8 +1,23 @@
 import streamlit as st
+import json
+import os
+
+from langchain_community.retrievers import BM25Retriever
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.vectorstores import FAISS
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from langchain_openai import OpenAIEmbeddings
+from langchain_openai import ChatOpenAI
+
+
+# -----------------------------
+# PAGE CONFIG
+# -----------------------------
 
 st.set_page_config(
-    page_title="Kartik AI Assistant",
-    page_icon="🤖",
+    page_title="AI Knowledge Assistant",
+    page_icon="📚",
     layout="centered"
 )
 
@@ -17,35 +32,43 @@ footer {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
-# TEST SIDEBAR
-st.sidebar.write("Test Sidebar")
+st.title("🤖 AI Knowledge Assistant")
+st.caption("Chat with documents, generate quizzes, and study smarter")
 
-st.title("🤖 Smart Document Assistant")
-st.caption("AI chatbot trained on your documents")
 
-import json
-
-from langchain_community.retrievers import BM25Retriever
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_community.vectorstores import FAISS
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-from langchain_openai import OpenAIEmbeddings
-from langchain_openai import ChatOpenAI
-
-st.set_page_config(page_title="AI Knowledge Assistant", page_icon="📚")
+# -----------------------------
+# SIDEBAR
+# -----------------------------
 
 st.sidebar.title("📚 AI Knowledge Assistant")
 st.sidebar.caption("Built by Kartik Vagh")
 
+mode = st.sidebar.selectbox(
+    "Study Mode",
+    [
+        "Ask Questions",
+        "Explain Simply",
+        "Generate Quiz",
+        "Create Flashcards"
+    ]
+)
+
+menu = st.sidebar.radio(
+    "Navigation",
+    ["💬 Chat", "📂 Upload Documents"]
+)
+
+
+# -----------------------------
+# API KEY
+# -----------------------------
+
 api_key = st.secrets["OPENAI_API_KEY"]
 
-# -----------------------------
-# Load users
-# -----------------------------
 
-import json
-import os
+# -----------------------------
+# LOAD USERS
+# -----------------------------
 
 if not os.path.exists("users.json"):
     with open("users.json", "w") as f:
@@ -54,8 +77,9 @@ if not os.path.exists("users.json"):
 with open("users.json", "r") as f:
     users = json.load(f)
 
+
 # -----------------------------
-# Login system
+# LOGIN SYSTEM
 # -----------------------------
 
 if "logged_in" not in st.session_state:
@@ -83,8 +107,9 @@ if not st.session_state.logged_in:
 
     st.stop()
 
+
 # -----------------------------
-# After login
+# AFTER LOGIN
 # -----------------------------
 
 username = st.session_state.username
@@ -93,14 +118,10 @@ st.sidebar.markdown("---")
 st.sidebar.write(f"👤 {users[username]['name']}")
 st.sidebar.markdown("---")
 
-# -----------------------------
-# Sidebar navigation
-# -----------------------------
 
-menu = st.sidebar.radio(
-    "Navigation",
-    ["💬 Chat", "📂 Upload Documents"]
-)
+# -----------------------------
+# SESSION CONTROLS
+# -----------------------------
 
 if st.sidebar.button("🆕 New Session"):
     st.session_state.retrievers = None
@@ -111,8 +132,9 @@ if st.sidebar.button("🚪 Logout"):
     st.session_state.clear()
     st.rerun()
 
+
 # -----------------------------
-# Session state
+# SESSION STATE
 # -----------------------------
 
 if "messages" not in st.session_state:
@@ -121,8 +143,9 @@ if "messages" not in st.session_state:
 if "retrievers" not in st.session_state:
     st.session_state.retrievers = None
 
+
 # -----------------------------
-# Load LLM
+# LOAD LLM
 # -----------------------------
 
 @st.cache_resource
@@ -135,18 +158,19 @@ def load_llm():
 
 llm = load_llm()
 
+
 # -----------------------------
-# Query expansion
+# QUERY EXPANSION
 # -----------------------------
 
 def expand_queries(question):
 
     prompt = f"""
-    Generate 4 alternative search queries for the following question.
-    Return each query on a new line.
-    
-    Question: {question}
-    """
+Generate 4 alternative search queries for the question.
+Return each query on a new line.
+
+Question: {question}
+"""
 
     response = llm.invoke(prompt).content
 
@@ -154,6 +178,11 @@ def expand_queries(question):
     queries.append(question)
 
     return queries
+
+
+# -----------------------------
+# KEYWORD FILTER
+# -----------------------------
 
 def keyword_match_filter(docs, question):
 
@@ -171,7 +200,7 @@ def keyword_match_filter(docs, question):
 
 
 # -----------------------------
-# Upload documents
+# DOCUMENT UPLOAD
 # -----------------------------
 
 if menu == "📂 Upload Documents":
@@ -183,6 +212,7 @@ if menu == "📂 Upload Documents":
         type="pdf",
         accept_multiple_files=True
     )
+
     MAX_DOCS = 5
 
     if uploaded_files and len(uploaded_files) > MAX_DOCS:
@@ -196,8 +226,9 @@ if menu == "📂 Upload Documents":
             all_docs = []
 
             for uploaded_file in uploaded_files:
+
                 if uploaded_file.size > 20 * 1024 * 1024:
-                    st.error("File too large. Maximum 20MB.")
+                    st.error("File too large (max 20MB).")
                     st.stop()
 
                 with open(uploaded_file.name, "wb") as f:
@@ -234,8 +265,9 @@ if menu == "📂 Upload Documents":
 
         st.success("Documents indexed successfully!")
 
+
 # -----------------------------
-# Chat interface
+# CHAT INTERFACE
 # -----------------------------
 
 if menu == "💬 Chat":
@@ -255,7 +287,9 @@ if menu == "💬 Chat":
 
     if question:
 
-        st.session_state.messages.append({"role": "user", "content": question})
+        st.session_state.messages.append(
+            {"role": "user", "content": question}
+        )
 
         with st.chat_message("user"):
             st.markdown(question)
@@ -285,49 +319,80 @@ if menu == "💬 Chat":
 
         relevant_docs = keyword_match_filter(unique_docs, question)
 
-        if len(relevant_docs) == 0:
+        MAX_CONTEXT_DOCS = 6
+        selected_docs = relevant_docs[:MAX_CONTEXT_DOCS]
 
-            response = "No matching records found."
+        context = "\n\n".join(
+            [doc.page_content for doc in selected_docs]
+        )
 
-        else:
+        # -----------------------------
+        # MODE PROMPTS
+        # -----------------------------
 
-            context = "\n\n".join([doc.page_content for doc in relevant_docs])
+        if mode == "Ask Questions":
 
             prompt = f"""
-            You are an AI document extraction assistant.
-            
-            Your job is to extract exact information from the document context.
-            
-            Rules:
-            - Do NOT summarize
-            - Extract ALL matching records
-            - Preserve names and numbers exactly
-            - If nothing matches say "No matching records found"
-            - Scan the entire context and extract every matching record.
-            
-            Context:
-            {context}
-            
-            User request:
-            {question}
-            
-            Return results as a clear list.
-            """
+Answer the question using the document context.
 
-            try:
-                response = llm.invoke(prompt).content
-            except Exception:
-                response = "AI service is temporarily unavailable. Please try again."
-                
+Context:
+{context}
+
+Question:
+{question}
+
+Provide a clear answer.
+"""
+
+        elif mode == "Explain Simply":
+
+            prompt = f"""
+Explain the following content in simple language
+so a student can understand easily.
+
+Document:
+{context}
+"""
+
+        elif mode == "Generate Quiz":
+
+            prompt = f"""
+Create 5 quiz questions from the document.
+
+Context:
+{context}
+
+Return numbered questions.
+"""
+
+        elif mode == "Create Flashcards":
+
+            prompt = f"""
+Create 10 flashcards.
+
+Format:
+Q: question
+A: answer
+
+Context:
+{context}
+"""
+
+        try:
+            response = llm.invoke(prompt).content
+
+        except Exception:
+            response = "AI service temporarily unavailable."
+
         with st.chat_message("assistant"):
 
             st.markdown(response)
 
-            st.markdown("**Sources:**")
+            st.markdown("### Sources")
 
             shown = set()
 
-            for doc in relevant_docs:
+            for doc in selected_docs:
 
                 source = doc.metadata.get("source", "Unknown")
                 page = doc.metadata.get("page", "?")
@@ -338,9 +403,24 @@ if menu == "💬 Chat":
                     st.markdown(f"- {source} (Page {page})")
                     shown.add(key)
 
+            with st.expander("📄 View Source Text"):
+
+                for doc in selected_docs:
+
+                    source = doc.metadata.get("source", "Unknown")
+                    page = doc.metadata.get("page", "?")
+
+                    st.markdown(f"**{source} – Page {page}**")
+                    st.write(doc.page_content[:800])
+
         st.session_state.messages.append(
             {"role": "assistant", "content": response}
         )
+
+
+# -----------------------------
+# FOOTER
+# -----------------------------
 
 st.markdown("---")
 st.markdown("© 2026 Kartik Vagh")
