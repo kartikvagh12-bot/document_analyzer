@@ -309,133 +309,120 @@ if menu == "💬 Chat":
             if mode == "Ask Questions":
 
                 prompt = f"""
-            You are answering a question using the document.
-            
-            Rules:
-            - Answer concisely.
-            - Use only information from the context.
-            - Do NOT repeat the context text word-for-word.
-            
-            Context:
-            {context}
-            
-            Question:
-            {question}
-            """
+                You are answering a question using the document.
+                
+                Rules:
+                - Answer concisely.
+                - Use only information from the context.
+                - Do NOT repeat the context text word-for-word.
+                
+                Context:
+                {context}
+                
+                Question:
+                {question}
+                """
             
             elif mode == "Explain Simply":
             
                 prompt = f"""
-            You are a teacher explaining a concept to a beginner.
-            
-            Rules:
-            - Use very simple language.
-            - Use short sentences.
-            - Give a short example if possible.
-            
-            Context:
-            {context}
-            
-            Question:
-            {question}
-            """
+                You are a teacher explaining a concept to a beginner.
+                
+                Rules:
+                - Use very simple language.
+                - Use short sentences.
+                - Give a short example if possible.
+                
+                Context:
+                {context}
+                
+                Question:
+                {question}
+                """
             
             elif mode == "Generate Quiz":
             
                 prompt = f"""
-            Create 5 quiz questions based ONLY on the document.
-            
-            Format:
-            
-            1. Question
-            A) option
-            B) option
-            C) option
-            D) option
-            Answer: correct option
-            
-            Context:
-            {context}
-            """
+                Create 5 quiz questions based ONLY on the document.
+                
+                Format:
+                
+                1. Question
+                A) option
+                B) option
+                C) option
+                D) option
+                Answer: correct option
+                
+                Context:
+                {context}
+                """
             
             elif mode == "Create Flashcards":
             
                 prompt = f"""
-            Create 5 study flashcards from the document.
-            
-            Format:
-            
-            Q: question
-            A: answer
-            
-            Keep answers short.
-            
-            Context:
-            {context}
-            """
+                Create 5 study flashcards from the document.
+                
+                Format:
+                
+                Q: question
+                A: answer
+                
+                Keep answers short.
+                
+                Context:
+                {context}
+                """
 
             try:
 
-                response_placeholder = st.empty()
-                full_response = ""
-                
                 with st.chat_message("assistant"):
-                
+            
+                    response_placeholder = st.empty()
+                    full_response = ""
+            
+                    # STREAM RESPONSE
                     for chunk in llm.stream(prompt):
                         if chunk.content:
                             full_response += chunk.content
                             response_placeholder.markdown(full_response)
-                
-                response = full_response
-                st.session_state.messages.append(
-                    {"role": "assistant", "content": response}
-                )
-
+            
+                    response = full_response
+            
+                    # SHOW SOURCES
+                    if len(selected_docs) > 0:
+            
+                        st.markdown("### Sources")
+            
+                        shown = set()
+            
+                        for i, doc in enumerate(selected_docs):
+            
+                            source = doc.metadata.get("source", "Unknown")
+                            page = doc.metadata.get("page", "?")
+            
+                            key = f"{source}-{page}"
+            
+                            if key not in shown:
+                                st.markdown(f"{i+1}. {source} (Page {page})")
+                                shown.add(key)
+            
+                        with st.expander("📄 View Source Text"):
+            
+                            for doc in selected_docs:
+            
+                                source = doc.metadata.get("source", "Unknown")
+                                page = doc.metadata.get("page", "?")
+            
+                                st.markdown(f"**{source} – Page {page}**")
+                                st.write(doc.page_content[:800])
+            
             except Exception:
                 response = "AI service temporarily unavailable."
 
-        with st.chat_message("assistant"):
-
-            response_placeholder = st.empty()
-        
-            full_response = ""
-        
-            for chunk in llm.stream(prompt):
-                if chunk.content:
-                    full_response += chunk.content
-                    response_placeholder.markdown(full_response)
-        
-            response = full_response
-        
-            if len(selected_docs) > 0:
-        
-                st.markdown("### Sources")
-        
-                shown = set()
-        
-                for i, doc in enumerate(selected_docs):
-        
-                    source = doc.metadata.get("source", "Unknown")
-                    page = doc.metadata.get("page", "?")
-        
-                    key = f"{source}-{page}"
-        
-                    if key not in shown:
-                        st.markdown(f"{i+1}. {source} (Page {page})")
-                        shown.add(key)
-        
-                with st.expander("📄 View Source Text"):
-        
-                    for doc in selected_docs:
-        
-                        source = doc.metadata.get("source", "Unknown")
-                        page = doc.metadata.get("page", "?")
-        
-                        st.markdown(f"**{source} – Page {page}**")
-                        st.write(doc.page_content[:800])
-
-        st.session_state.messages.append({"role": "assistant", "content": response})
-
+            st.session_state.messages.append(
+                {"role": "assistant", "content": response}
+            )
 # -----------------------------
 # FOOTER
 # -----------------------------
