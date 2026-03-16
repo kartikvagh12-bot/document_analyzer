@@ -10,7 +10,6 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
 from langchain_openai import ChatOpenAI
 
-
 # -----------------------------
 # PAGE CONFIG
 # -----------------------------
@@ -21,7 +20,8 @@ st.set_page_config(
     layout="centered"
 )
 
-st.markdown("""
+st.markdown(
+    """
 <style>
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
@@ -30,11 +30,12 @@ footer {visibility: hidden;}
     max-width: 800px;
 }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 st.title("🤖 AI Knowledge Assistant")
 st.caption("Chat with documents, generate quizzes, and study smarter")
-
 
 # -----------------------------
 # SIDEBAR
@@ -49,17 +50,13 @@ mode = st.sidebar.selectbox(
         "Ask Questions",
         "Explain Simply",
         "Generate Quiz",
-        "Create Flashcards"
-    ]
+        "Create Flashcards",
+    ],
 )
 
-menu = st.sidebar.radio(
-    "Navigation",
-    ["💬 Chat", "📂 Upload Documents"]
-)
+menu = st.sidebar.radio("Navigation", ["💬 Chat", "📂 Upload Documents"])
 
 api_key = st.secrets["OPENAI_API_KEY"]
-
 
 # -----------------------------
 # USER SYSTEM
@@ -71,7 +68,6 @@ if not os.path.exists("users.json"):
 
 with open("users.json", "r") as f:
     users = json.load(f)
-
 
 # -----------------------------
 # LOGIN
@@ -90,7 +86,6 @@ if not st.session_state.logged_in:
     if st.button("Login"):
 
         if username in users and users[username]["password"] == password:
-
             st.session_state.logged_in = True
             st.session_state.username = username
             st.rerun()
@@ -100,13 +95,11 @@ if not st.session_state.logged_in:
 
     st.stop()
 
-
 username = st.session_state.username
 
 st.sidebar.markdown("---")
 st.sidebar.write(f"👤 {users[username]['name']}")
 st.sidebar.markdown("---")
-
 
 if st.sidebar.button("🆕 New Session"):
     st.session_state.retrievers = None
@@ -116,7 +109,6 @@ if st.sidebar.button("🆕 New Session"):
 if st.sidebar.button("🚪 Logout"):
     st.session_state.clear()
     st.rerun()
-
 
 # -----------------------------
 # SESSION STATE
@@ -128,7 +120,6 @@ if "messages" not in st.session_state:
 if "retrievers" not in st.session_state:
     st.session_state.retrievers = None
 
-
 # -----------------------------
 # LOAD LLM
 # -----------------------------
@@ -138,14 +129,14 @@ def load_llm():
     return ChatOpenAI(
         model="gpt-4.1-mini",
         openai_api_key=api_key,
-        temperature=0
+        temperature=0,
+        streaming=True,
     )
 
 llm = load_llm()
 
-
 # -----------------------------
-# RERANK FUNCTION
+# SIMPLE RERANK FUNCTION
 # -----------------------------
 
 def rerank_docs(docs, question):
@@ -166,27 +157,29 @@ def rerank_docs(docs, question):
 
     return [doc for score, doc in scored]
 
-
 # -----------------------------
-# QUERY EXPANSION
+# QUERY EXPANSION (SAFE)
 # -----------------------------
 
 def expand_queries(question):
 
+    if len(question.split()) < 6:
+        return [question]
+
     prompt = f"""
-Generate 4 alternative search queries for the question.
+Generate 3 alternative search queries for the question.
 Return each query on a new line.
 
 Question: {question}
 """
 
-    response = llm.invoke(prompt).content
-
-    queries = [q.strip() for q in response.split("\n") if q.strip()]
-    queries.append(question)
-
-    return queries
-
+    try:
+        response = llm.invoke(prompt).content
+        queries = [q.strip() for q in response.split("\n") if q.strip()]
+        queries.append(question)
+        return queries
+    except Exception:
+        return [question]
 
 # -----------------------------
 # DOCUMENT UPLOAD
@@ -199,21 +192,25 @@ if menu == "📂 Upload Documents":
     uploaded_files = st.file_uploader(
         "Upload PDF documents",
         type="pdf",
-        accept_multiple_files=True
+        accept_multiple_files=True,
     )
 
     if uploaded_files and st.session_state.retrievers is None:
 
         with st.spinner("Analyzing documents..."):
 
+            os.makedirs("uploads", exist_ok=True)
+
             all_docs = []
 
             for uploaded_file in uploaded_files:
 
-                with open(uploaded_file.name, "wb") as f:
+                file_path = os.path.join("uploads", uploaded_file.name)
+
+                with open(file_path, "wb") as f:
                     f.write(uploaded_file.read())
 
-                loader = PyPDFLoader(uploaded_file.name)
+                loader = PyPDFLoader(file_path)
                 docs = loader.load()
 
                 for doc in docs:
@@ -222,8 +219,9 @@ if menu == "📂 Upload Documents":
                 all_docs.extend(docs)
 
             splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1200,
-                chunk_overlap=200
+                chunk_size=800,
+                chunk_overlap=150,
+                separators=["\n\n", "\n", ". ", " ", ""],
             )
 
             split_docs = splitter.split_documents(all_docs)
@@ -232,18 +230,17 @@ if menu == "📂 Upload Documents":
 
             vector_db = FAISS.from_documents(split_docs, embeddings)
 
-            vector_retriever = vector_db.as_retriever(search_kwargs={"k": 20})
+            vector_retriever = vector_db.as_retriever(search_kwargs={"k": 15})
 
             bm25_retriever = BM25Retriever.from_documents(split_docs)
-            bm25_retriever.k = 20
+            bm25_retriever.k = 15
 
             st.session_state.retrievers = {
                 "vector": vector_retriever,
-                "bm25": bm25_retriever
+                "bm25": bm25_retriever,
             }
 
         st.success("Documents indexed successfully!")
-
 
 # -----------------------------
 # CHAT
@@ -266,9 +263,7 @@ if menu == "💬 Chat":
 
     if question:
 
-        st.session_state.messages.append(
-            {"role": "user", "content": question}
-        )
+        st.session_state.messages.append({"role": "user", "content": question})
 
         with st.chat_message("user"):
             st.markdown(question)
@@ -296,9 +291,12 @@ if menu == "💬 Chat":
                 unique_docs.append(doc)
                 seen.add(text)
 
+        # limit explosion
+        unique_docs = unique_docs[:40]
+
         ranked_docs = rerank_docs(unique_docs, question)
 
-        selected_docs = ranked_docs[:4]
+        selected_docs = ranked_docs[:6]
 
         if len(selected_docs) == 0:
 
@@ -306,9 +304,7 @@ if menu == "💬 Chat":
 
         else:
 
-            context = "\n\n".join(
-                [doc.page_content for doc in selected_docs]
-            )
+            context = "\n\n".join([doc.page_content for doc in selected_docs])
 
             if mode == "Ask Questions":
 
@@ -366,7 +362,20 @@ Context:
 """
 
             try:
-                response = llm.invoke(prompt).content
+
+                with st.chat_message("assistant"):
+
+                    response_placeholder = st.empty()
+
+                    full_response = ""
+
+                    for chunk in llm.stream(prompt):
+                        if chunk.content:
+                            full_response += chunk.content
+                            response_placeholder.markdown(full_response)
+
+                    response = full_response
+
             except Exception:
                 response = "AI service temporarily unavailable."
 
@@ -380,7 +389,7 @@ Context:
 
                 shown = set()
 
-                for doc in selected_docs:
+                for i, doc in enumerate(selected_docs):
 
                     source = doc.metadata.get("source", "Unknown")
                     page = doc.metadata.get("page", "?")
@@ -388,7 +397,7 @@ Context:
                     key = f"{source}-{page}"
 
                     if key not in shown:
-                        st.markdown(f"- {source} (Page {page})")
+                        st.markdown(f"{i+1}. {source} (Page {page})")
                         shown.add(key)
 
                 with st.expander("📄 View Source Text"):
@@ -401,10 +410,7 @@ Context:
                         st.markdown(f"**{source} – Page {page}**")
                         st.write(doc.page_content[:800])
 
-        st.session_state.messages.append(
-            {"role": "assistant", "content": response}
-        )
-
+        st.session_state.messages.append({"role": "assistant", "content": response})
 
 # -----------------------------
 # FOOTER
