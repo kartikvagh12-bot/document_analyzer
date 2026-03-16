@@ -376,18 +376,20 @@ if menu == "💬 Chat":
 
             try:
 
+                response_placeholder = st.empty()
+                full_response = ""
+                
                 with st.chat_message("assistant"):
-
-                    response_placeholder = st.empty()
-
-                    full_response = ""
-
+                
                     for chunk in llm.stream(prompt):
                         if chunk.content:
                             full_response += chunk.content
                             response_placeholder.markdown(full_response)
-
-                    response = full_response
+                
+                response = full_response
+                st.session_state.messages.append(
+                    {"role": "assistant", "content": response}
+                )
 
             except Exception:
                 response = "AI service temporarily unavailable."
