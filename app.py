@@ -309,57 +309,70 @@ if menu == "💬 Chat":
             if mode == "Ask Questions":
 
                 prompt = f"""
-Answer ONLY using the document context.
-
-If the answer is not present say:
-"Not found in the document."
-
-Context:
-{context}
-
-Question:
-{question}
-"""
-
+            You are answering a question using the document.
+            
+            Rules:
+            - Answer concisely.
+            - Use only information from the context.
+            - Do NOT repeat the context text word-for-word.
+            
+            Context:
+            {context}
+            
+            Question:
+            {question}
+            """
+            
             elif mode == "Explain Simply":
-
+            
                 prompt = f"""
-Explain the answer to the user's question
-in simple language.
-
-Only use the document context.
-
-Context:
-{context}
-
-Question:
-{question}
-"""
-
+            You are a teacher explaining a concept to a beginner.
+            
+            Rules:
+            - Use very simple language.
+            - Use short sentences.
+            - Give a short example if possible.
+            
+            Context:
+            {context}
+            
+            Question:
+            {question}
+            """
+            
             elif mode == "Generate Quiz":
-
+            
                 prompt = f"""
-Create 5 quiz questions from the document.
-
-Use ONLY information in the context.
-
-Context:
-{context}
-"""
-
+            Create 5 quiz questions based ONLY on the document.
+            
+            Format:
+            
+            1. Question
+            A) option
+            B) option
+            C) option
+            D) option
+            Answer: correct option
+            
+            Context:
+            {context}
+            """
+            
             elif mode == "Create Flashcards":
-
+            
                 prompt = f"""
-Create 5 flashcards using ONLY the document.
-
-Format:
-
-Q: question
-A: answer
-
-Context:
-{context}
-"""
+            Create 5 study flashcards from the document.
+            
+            Format:
+            
+            Q: question
+            A: answer
+            
+            Keep answers short.
+            
+            Context:
+            {context}
+            """
 
             try:
 
