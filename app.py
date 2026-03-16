@@ -381,32 +381,41 @@ Context:
 
         with st.chat_message("assistant"):
 
-            st.markdown(response)
-
+            response_placeholder = st.empty()
+        
+            full_response = ""
+        
+            for chunk in llm.stream(prompt):
+                if chunk.content:
+                    full_response += chunk.content
+                    response_placeholder.markdown(full_response)
+        
+            response = full_response
+        
             if len(selected_docs) > 0:
-
+        
                 st.markdown("### Sources")
-
+        
                 shown = set()
-
+        
                 for i, doc in enumerate(selected_docs):
-
+        
                     source = doc.metadata.get("source", "Unknown")
                     page = doc.metadata.get("page", "?")
-
+        
                     key = f"{source}-{page}"
-
+        
                     if key not in shown:
                         st.markdown(f"{i+1}. {source} (Page {page})")
                         shown.add(key)
-
+        
                 with st.expander("📄 View Source Text"):
-
+        
                     for doc in selected_docs:
-
+        
                         source = doc.metadata.get("source", "Unknown")
                         page = doc.metadata.get("page", "?")
-
+        
                         st.markdown(f"**{source} – Page {page}**")
                         st.write(doc.page_content[:800])
 
